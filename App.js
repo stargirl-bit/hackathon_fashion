@@ -13,9 +13,8 @@ export default function App() {
     (async () => {
       const { status } = await Camera.requestCameraPermissionsAsync();
       setHasPermission(status === 'granted');
-      
+
       if (status === 'granted') {
-        // Greet the user when the app opens
         Speech.speak('Welcome to the Clothing Describer. Tap anywhere on the screen to scan your outfit.', {
           language: 'en-US',
           rate: 1.0,
@@ -33,21 +32,17 @@ export default function App() {
 
     try {
       setIsProcessing(true);
-      
-      // Haptic and audio feedback for starting
+
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       Speech.speak('Scanning your outfit...', { language: 'en-US' });
 
-      // Take photo
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.5,
         base64: true,
       });
 
-      // Call Gemini API
       const description = await analyzeImageWithGemini(photo.base64);
 
-      // Feedback for success
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Speech.speak(description, { language: 'en-US' });
 
@@ -62,12 +57,16 @@ export default function App() {
 
   const analyzeImageWithGemini = async (base64Image) => {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-    
+
     if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-      throw new Error('API Key is missing');
+      throw new Error('API Key is missing. Did you clear the Expo cache?');
     }
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
+    const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -78,34 +77,41 @@ export default function App() {
             role: 'user',
             parts: [
               {
-                text: "You are a fashion assistant helping a blind person. When shown a clothing item, describe: the garment type, its color in simple everyday language (e.g., 'navy' or 'sky blue', not just 'blue'), and one or two colors that would match well. Keep your response under 4 sentences. Be warm, concise, and practical. Never say 'I see' or 'it appears' — speak directly to the user.",
+                text: `You are an expert fashion assistant helping a blind person. Analyze this clothing item in deep detail. 
+                Please describe: 
+                1. The specific garment type, fit, and visible fabric texture (e.g., knitted, denim, silk). 
+                2. The exact color, plus any patterns, prints, stripes, or graphics. 
+                3. The overall style, vibe, or occasion it is best suited for (e.g., casual summer, formal business). 
+                4. Two specific clothing items or colors that would complete the outfit perfectly. 
+                Speak directly to the user. Keep it warm, descriptive, and under 5 sentences so it is easy to listen to. Never say 'I see' or 'it appears'.`,
               },
               {
                 inlineData: {
                   mimeType: 'image/jpeg',
-                  data: base64Image,
+                  data: cleanBase64,
                 },
               },
             ],
           },
         ],
         generationConfig: {
-          maxOutputTokens: 150,
+
+          maxOutputTokens: 3000,
         }
       }),
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
-      console.error('API Error:', data);
-      throw new Error('API request failed');
+      console.error('Gemini API Error Details:', JSON.stringify(data, null, 2));
+      throw new Error(`API failed: ${data.error?.message || 'Unknown error'}`);
     }
 
-    // Safely extract the response text from the Gemini payload
     if (data.candidates && data.candidates.length > 0 && data.candidates[0].content.parts.length > 0) {
       return data.candidates[0].content.parts[0].text;
     } else {
+      console.error('Unexpected Gemini Response Format:', data);
       throw new Error('Unexpected API response format');
     }
   };
@@ -128,8 +134,8 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <CameraView 
-        style={styles.camera} 
+      <CameraView
+        style={styles.camera}
         facing="back"
         ref={cameraRef}
       >
@@ -172,7 +178,7 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)', // Slight dim to make text more readable
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   overlayTextContainer: {
     padding: 20,
